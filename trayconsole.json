@@ -1,0 +1,20 @@
+{
+  "name": "PortWatcher",
+  "icon": null,
+  "ownTrayIcon": false,
+  "autostart": false,
+  "openFolder": true,
+  "components": [
+    {
+      "name": null,
+      "lifecycle": {
+        "start": "pythonw port_watcher.py",
+        "stop": null,
+        "build": null
+      },
+      "pipe": "trayconsole_portwatcher",
+      "window": true,
+      "customActions": []
+    }
+  ]
+}
