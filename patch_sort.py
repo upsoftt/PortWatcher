@@ -1,6 +1,7 @@
 import re
 
-path = r'D:\MyProjects\PortWatcher\port_watcher.py'
+import os
+path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'port_watcher.py')
 with open(path, 'r', encoding='utf-8') as f:
     content = f.read()
 
