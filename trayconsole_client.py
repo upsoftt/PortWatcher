@@ -290,9 +290,15 @@ class TrayConsoleClient:
             "name": self._pipe_name,
         }, ensure_ascii=False)
 
-        tmp_path = self._heartbeat_path.with_suffix(".json.tmp")
+        tmp_path = self._heartbeat_path.with_suffix(f".{os.getpid()}.tmp")
         tmp_path.write_text(data, encoding="utf-8")
-        tmp_path.replace(self._heartbeat_path)
+        try:
+            tmp_path.replace(self._heartbeat_path)
+        except OSError:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _delete_heartbeat(self):
         """Удалить heartbeat-файл."""
