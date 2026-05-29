@@ -267,19 +267,30 @@ class TrayConsoleClient:
         self._heartbeat_thread.start()
 
     def _heartbeat_loop(self):
-        """Цикл записи heartbeat каждые _HEARTBEAT_INTERVAL секунд."""
+        # Внешний BaseException-щит: heartbeat daemon-thread в принципе не должен
+        # умирать пока процесс жив — иначе TrayConsole видит NotResponding (orange)
+        # при работающем процессе. Инцидент 2026-05-03: memory pressure → OSError
+        # из _write_heartbeat → _log упал на sys.stderr=None/cp1251 → thread мёртв.
         while self._running:
             try:
-                if self._running:
-                    self._write_heartbeat()
-            except Exception as e:
-                _log(f"Ошибка записи heartbeat: {e}")
-
-            # Sleep по 1 сек для быстрого выхода при _running = False
-            for _ in range(_HEARTBEAT_INTERVAL):
-                if not self._running:
-                    break
-                time.sleep(1)
+                try:
+                    if self._running:
+                        self._write_heartbeat()
+                except Exception as e:
+                    _log(f"Ошибка записи heartbeat: {e}")
+                for _ in range(_HEARTBEAT_INTERVAL):
+                    if not self._running:
+                        break
+                    time.sleep(1)
+            except BaseException as e:
+                try:
+                    _log(f"heartbeat loop recovered from: {e!r}")
+                except Exception:
+                    pass
+                try:
+                    time.sleep(_HEARTBEAT_INTERVAL)
+                except Exception:
+                    pass
 
     def _write_heartbeat(self):
         """Записать heartbeat-файл (атомарно через .tmp + rename)."""
@@ -290,15 +301,9 @@ class TrayConsoleClient:
             "name": self._pipe_name,
         }, ensure_ascii=False)
 
-        tmp_path = self._heartbeat_path.with_suffix(f".{os.getpid()}.tmp")
+        tmp_path = self._heartbeat_path.with_suffix(".json.tmp")
         tmp_path.write_text(data, encoding="utf-8")
-        try:
-            tmp_path.replace(self._heartbeat_path)
-        except OSError:
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+        tmp_path.replace(self._heartbeat_path)
 
     def _delete_heartbeat(self):
         """Удалить heartbeat-файл."""
@@ -350,5 +355,15 @@ class TrayConsoleClient:
 
 
 def _log(message: str):
-    """Вывод отладочных сообщений в stderr."""
-    print(f"[trayconsole] {message}", file=sys.stderr, flush=True)
+    # Логгер обязан быть тихим: на pythonw.exe sys.stderr может быть None
+    # (AttributeError от print) или иметь cp1251/ASCII кодировку (UnicodeEncodeError
+    # на кириллице). Любая такая ошибка, не пойманная вызывающим кодом, убивает
+    # daemon-thread heartbeat → процесс жив, heartbeat-файл stale → orange status.
+    try:
+        stream = sys.stderr
+        if stream is None:
+            return
+        stream.write(f"[trayconsole] {message}\n")
+        stream.flush()
+    except Exception:
+        pass
